@@ -120,6 +120,8 @@ add_tool_handler(tools_gmail.ReplyEmailToolHandler())
 add_tool_handler(tools_gmail.GetAttachmentToolHandler())
 add_tool_handler(tools_gmail.BulkGetEmailsByIdsToolHandler())
 add_tool_handler(tools_gmail.BulkSaveAttachmentsToolHandler())
+add_tool_handler(tools_gmail.ListLabelsToolHandler())
+add_tool_handler(tools_gmail.ModifyLabelsToolHandler())
 
 add_tool_handler(tools_calendar.ListCalendarsToolHandler())
 add_tool_handler(tools_calendar.GetCalendarEventsToolHandler())

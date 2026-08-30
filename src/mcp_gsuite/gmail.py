@@ -375,6 +375,56 @@ class GmailService():
             logging.error(traceback.format_exc())
             return None
         
+    def list_labels(self) -> list[dict]:
+        """
+        List all Gmail labels for the account (system and user-created).
+
+        Returns:
+            list: Label objects with id, name, type, and visibility fields.
+                  Empty list if retrieval fails.
+        """
+        try:
+            results = self.service.users().labels().list(userId='me').execute()
+            return results.get('labels', [])
+
+        except Exception as e:
+            logging.error(f"Error listing labels: {str(e)}")
+            logging.error(traceback.format_exc())
+            return []
+
+    def modify_message_labels(self, message_id: str, add_label_ids: list[str] | None = None, remove_label_ids: list[str] | None = None) -> dict | None:
+        """
+        Add and/or remove existing labels on a Gmail message.
+        Does not create, delete, or rename labels.
+
+        Args:
+            message_id (str): The ID of the Gmail message to modify
+            add_label_ids (list[str], optional): Label IDs to add
+            remove_label_ids (list[str], optional): Label IDs to remove
+
+        Returns:
+            dict: The updated message resource (id, threadId, labelIds) if successful
+            None: If the modification fails
+        """
+        try:
+            body = {}
+            if add_label_ids:
+                body['addLabelIds'] = add_label_ids
+            if remove_label_ids:
+                body['removeLabelIds'] = remove_label_ids
+
+            result = self.service.users().messages().modify(
+                userId='me',
+                id=message_id,
+                body=body
+            ).execute()
+            return result
+
+        except Exception as e:
+            logging.error(f"Error modifying labels on message {message_id}: {str(e)}")
+            logging.error(traceback.format_exc())
+            return None
+
     def get_attachment(self, message_id: str, attachment_id: str) -> dict | None:
         """
         Retrieves a Gmail attachment by its ID.
