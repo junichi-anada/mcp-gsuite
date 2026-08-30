@@ -453,6 +453,143 @@ class GetAttachmentToolHandler(toolhandler.ToolHandler):
             )
         ]
 
+class ListLabelsToolHandler(toolhandler.ToolHandler):
+    def __init__(self):
+        super().__init__("list_gmail_labels")
+
+    def get_tool_description(self) -> Tool:
+        return Tool(
+            name=self.name,
+            description="Lists all Gmail labels for the account (system and user-created), including their ID, display name, and type. Use this to look up label IDs before calling modify_gmail_labels.",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "__user_id__": self.get_user_id_arg_schema(),
+                },
+                "required": [toolhandler.USER_ID_ARG]
+            }
+        )
+
+    def run_tool(self, args: dict) -> Sequence[TextContent | ImageContent | EmbeddedResource]:
+        user_id = args.get(toolhandler.USER_ID_ARG)
+        if not user_id:
+            raise RuntimeError(f"Missing required argument: {toolhandler.USER_ID_ARG}")
+        gmail_service = gmail.GmailService(user_id=user_id)
+        labels = gmail_service.list_labels()
+
+        return [
+            TextContent(
+                type="text",
+                text=json.dumps(labels, indent=2)
+            )
+        ]
+
+# Labels this tool refuses to touch. UNREAD is protected because read/unread
+# state changes are explicitly out of scope for this tool (see modify_gmail_labels
+# description) — callers must not be able to mark mail read/unread by relabeling it.
+PROTECTED_LABEL_IDS = {"UNREAD"}
+
+class ModifyLabelsToolHandler(toolhandler.ToolHandler):
+    def __init__(self):
+        super().__init__("modify_gmail_labels")
+
+    def get_tool_description(self) -> Tool:
+        return Tool(
+            name=self.name,
+            description="""Adds and/or removes EXISTING Gmail labels on a single message.
+
+            Does NOT create, delete, or rename labels — look up label IDs first with list_gmail_labels.
+            Does NOT change read/unread state: the UNREAD label is protected and this tool refuses to touch it.
+
+            dry_run defaults to true, which previews the change (what would be added/removed) without
+            calling the Gmail API. Set dry_run=false to actually apply the change.
+            """,
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "__user_id__": self.get_user_id_arg_schema(),
+                    "message_id": {
+                        "type": "string",
+                        "description": "The ID of the Gmail message to modify"
+                    },
+                    "add_label_ids": {
+                        "type": "array",
+                        "items": {"type": "string"},
+                        "description": "Existing label IDs to add to the message"
+                    },
+                    "remove_label_ids": {
+                        "type": "array",
+                        "items": {"type": "string"},
+                        "description": "Existing label IDs to remove from the message"
+                    },
+                    "dry_run": {
+                        "type": "boolean",
+                        "description": "If true (default), previews the change without applying it. Set to false to actually apply the label change.",
+                        "default": True
+                    }
+                },
+                "required": ["message_id", toolhandler.USER_ID_ARG]
+            }
+        )
+
+    def run_tool(self, args: dict) -> Sequence[TextContent | ImageContent | EmbeddedResource]:
+        if "message_id" not in args:
+            raise RuntimeError("Missing required argument: message_id")
+
+        user_id = args.get(toolhandler.USER_ID_ARG)
+        if not user_id:
+            raise RuntimeError(f"Missing required argument: {toolhandler.USER_ID_ARG}")
+
+        add_label_ids = args.get("add_label_ids") or []
+        remove_label_ids = args.get("remove_label_ids") or []
+        dry_run = args.get("dry_run", True)
+
+        if not add_label_ids and not remove_label_ids:
+            raise RuntimeError("Must specify at least one of add_label_ids or remove_label_ids")
+
+        touched_protected = PROTECTED_LABEL_IDS & (set(add_label_ids) | set(remove_label_ids))
+        if touched_protected:
+            raise RuntimeError(
+                f"Refusing to modify protected label(s): {', '.join(sorted(touched_protected))}. "
+                "This tool does not support changing read/unread state."
+            )
+
+        if dry_run:
+            return [
+                TextContent(
+                    type="text",
+                    text=json.dumps({
+                        "dry_run": True,
+                        "message_id": args["message_id"],
+                        "would_add": add_label_ids,
+                        "would_remove": remove_label_ids,
+                        "note": "No changes were made. Set dry_run=false to apply."
+                    }, indent=2)
+                )
+            ]
+
+        gmail_service = gmail.GmailService(user_id=user_id)
+        result = gmail_service.modify_message_labels(
+            message_id=args["message_id"],
+            add_label_ids=add_label_ids or None,
+            remove_label_ids=remove_label_ids or None
+        )
+
+        if result is None:
+            return [
+                TextContent(
+                    type="text",
+                    text=f"Failed to modify labels on message: {args['message_id']}"
+                )
+            ]
+
+        return [
+            TextContent(
+                type="text",
+                text=json.dumps(result, indent=2)
+            )
+        ]
+
 class BulkSaveAttachmentsToolHandler(toolhandler.ToolHandler):
     def __init__(self):
         super().__init__("bulk_save_gmail_attachments")
